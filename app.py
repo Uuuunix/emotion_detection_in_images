@@ -1,3 +1,6 @@
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"   # 必须在 import tensorflow 之前
+
 from flask import Flask, render_template, Response, request, redirect, url_for
 import cv2
 import numpy as np
