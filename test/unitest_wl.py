@@ -153,6 +153,26 @@ class WhiteBoxTests(unittest.TestCase):
         # 这是现有行为记录；张量格式正确不代表模型输入没有被标注污染。
         np.testing.assert_allclose(tensor[0, 0, 0], [0, 0, 1], atol=1e-6)
 
+    def test_wb06_argmax_mapping(self):
+        """WB-06：0/3 下标边界、并列首位，并补齐 Sad/Surprise 映射。"""
+        scenarios = [
+            ([0.90, 0.03, 0.03, 0.04], "Happy"),
+            ([0.05, 0.05, 0.05, 0.85], "Neutral"),
+            ([0.25, 0.25, 0.25, 0.25], "Happy"),
+            ([0.03, 0.90, 0.03, 0.04], "Sad"),
+            ([0.03, 0.03, 0.90, 0.04], "Surprise"),
+        ]
+        self.assertEqual(self.subject.class_labels, ["Happy", "Sad", "Surprise", "Neutral"])
+        for prediction, expected in scenarios:
+            with self.subTest(expected=expected, prediction=prediction):
+                self.model.predict.reset_mock()
+                self.model.predict.return_value = np.array([prediction])
+                image = np.full((180, 180, 3), 128, dtype=np.uint8)
+                with self.faces([(30, 50, 100, 100)]):
+                    _, emotion = self.subject.detect_faces_and_emotions(image)
+                self.assertEqual(emotion, expected)
+                self.model.predict.assert_called_once()
+
 def test_start_creates_camera_once(client):
     with patch('app.cv2.VideoCapture') as vc:
         vc.return_value = MagicMock(isOpened=lambda: True)
