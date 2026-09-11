@@ -1,16 +1,16 @@
-2026-09-11 10:40:43.918866: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
-2026-09-11 10:40:43.937471: E external/local_xla/xla/stream_executor/cuda/cuda_fft.cc:477] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-09-11 15:32:48.458086: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-09-11 15:32:48.481118: E external/local_xla/xla/stream_executor/cuda/cuda_fft.cc:477] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
 WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
-E0000 00:00:1789094443.960025 3234053 cuda_dnn.cc:8310] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
-E0000 00:00:1789094443.966866 3234053 cuda_blas.cc:1418] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
-2026-09-11 10:40:43.990780: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+E0000 00:00:1789111968.503653 1255581 cuda_dnn.cc:8310] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+E0000 00:00:1789111968.510768 1255581 cuda_blas.cc:1418] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-09-11 15:32:48.536267: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
 To enable the following instructions: AVX2 AVX512F AVX512_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
-2026-09-11 10:40:47.148455: E external/local_xla/xla/stream_executor/cuda/cuda_driver.cc:152] failed call to cuInit: INTERNAL: CUDA error: Failed call to cuInit: CUDA_ERROR_NO_DEVICE: no CUDA-capable device is detected
-2026-09-11 10:40:47.148549: I external/local_xla/xla/stream_executor/cuda/cuda_diagnostics.cc:137] retrieving CUDA diagnostic information for host: fuck-miner
-2026-09-11 10:40:47.148561: I external/local_xla/xla/stream_executor/cuda/cuda_diagnostics.cc:144] hostname: fuck-miner
-2026-09-11 10:40:47.148798: I external/local_xla/xla/stream_executor/cuda/cuda_diagnostics.cc:168] libcuda reported version is: 595.58.3
-2026-09-11 10:40:47.148860: I external/local_xla/xla/stream_executor/cuda/cuda_diagnostics.cc:172] kernel reported version is: 595.58.3
-2026-09-11 10:40:47.148875: I external/local_xla/xla/stream_executor/cuda/cuda_diagnostics.cc:259] kernel version seems to match DSO: 595.58.3
+2026-09-11 15:32:52.094979: E external/local_xla/xla/stream_executor/cuda/cuda_driver.cc:152] failed call to cuInit: INTERNAL: CUDA error: Failed call to cuInit: CUDA_ERROR_NO_DEVICE: no CUDA-capable device is detected
+2026-09-11 15:32:52.095088: I external/local_xla/xla/stream_executor/cuda/cuda_diagnostics.cc:137] retrieving CUDA diagnostic information for host: fuck-miner
+2026-09-11 15:32:52.095103: I external/local_xla/xla/stream_executor/cuda/cuda_diagnostics.cc:144] hostname: fuck-miner
+2026-09-11 15:32:52.096312: I external/local_xla/xla/stream_executor/cuda/cuda_diagnostics.cc:168] libcuda reported version is: 595.58.3
+2026-09-11 15:32:52.096414: I external/local_xla/xla/stream_executor/cuda/cuda_diagnostics.cc:172] kernel reported version is: 595.58.3
+2026-09-11 15:32:52.096427: I external/local_xla/xla/stream_executor/cuda/cuda_diagnostics.cc:259] kernel version seems to match DSO: 595.58.3
 /home/ykan/miniconda3/envs/emotion/lib/python3.11/site-packages/keras/src/optimizers/base_optimizer.py:86: UserWarning: Argument `decay` is no longer supported and will be ignored.
   warnings.warn(
 WARNING:absl:Compiled the loaded model, but the compiled metrics have yet to be built. `model.compile_metrics` will be empty until you train or evaluate the model.
@@ -20,6 +20,6 @@ WARNING:absl:Error in loading the saved optimizer state. As a result, your model
 INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
  * Running on http://127.0.0.1:5000
 INFO:werkzeug:[33mPress CTRL+C to quit[0m
-INFO:werkzeug:127.0.0.1 - - [11/Sep/2026 10:40:48] "GET / HTTP/1.1" 200 -
-INFO:werkzeug:127.0.0.1 - - [11/Sep/2026 10:40:48] "GET / HTTP/1.1" 200 -
-INFO:werkzeug:127.0.0.1 - - [11/Sep/2026 10:40:48] "GET /upload HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [11/Sep/2026 15:32:53] "GET / HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [11/Sep/2026 15:32:53] "GET / HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [11/Sep/2026 15:32:53] "GET /upload HTTP/1.1" 200 -

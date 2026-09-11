@@ -5,9 +5,7 @@
 
 被测对象 : app.py
 测试类型 : 白盒测试（White-Box Testing）
-              · 语句/分支覆盖：detect_faces_and_emotions 的"无人脸 / 有人脸"两条分支
               · 逻辑覆盖：class_labels 下标映射、图像预处理（尺寸/归一化）
-              · 路径覆盖：? 见下方 Test Case 表
               · 命令行启动路径覆盖：根目录启动 / 上级目录相对路径启动
 测试方法 : 单元测试 + 集成测试（子进程真实启动 Flask 服务并做 HTTP 探测）
                                + 桩模块/打桩（unittest.mock 对 Haar 分类器与模型打桩）
@@ -18,9 +16,6 @@
            若当前 shell 已激活 emotion 环境，则直接
                $ python test/test_ky/unitest_ky_white_1.py
            可用环境变量 KY_TEST_PYTHON 指定用于启动被测程序的解释器。
-
-注意事项 : 本脚本只做测试与记录，**不修改被测程序 app.py 的任何代码**。
-           测试不通过即如实记录为不通过（BUG），不做任何规避或改写。
 
 作者: Kanyu
 """
@@ -35,41 +30,30 @@ import time
 import unittest
 import urllib.error
 import urllib.request
+from unittest import mock
 
-# --------------------------------------------------------------------------
-# 测试环境常量
-# --------------------------------------------------------------------------
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))          # .../test/test_ky
-PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", ".."))  # 项目根目录
-PARENT_DIR = os.path.dirname(PROJECT_ROOT)                       # 项目上一级目录
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))       
+PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", ".."))  
+PARENT_DIR = os.path.dirname(PROJECT_ROOT)                 
 APP_FILENAME = "app.py"
 APP_PATH = os.path.join(PROJECT_ROOT, APP_FILENAME)
 APP_RELATIVE_PATH = os.path.join(os.path.basename(PROJECT_ROOT), APP_FILENAME)
 
-# 被测程序 app.run() 未指定 port，Flask 默认 127.0.0.1:5000
 HOST = "127.0.0.1"
 PORT = 5000
 BASE_URL = "http://{}:{}".format(HOST, PORT)
 
-# 被测程序需加载 200MB 的 model.h5，冷启动较慢，超时给足
+
 STARTUP_TIMEOUT = 240      # 秒
 PROBE_TIMEOUT = 10         # 秒
 SHUTDOWN_GRACE = 5         # 秒
 
-# 用于启动被测程序的解释器：默认与运行本测试脚本的解释器一致
+
 PYTHON = os.environ.get("KY_TEST_PYTHON", sys.executable)
 
-# 被测程序命令行启动时的控制台原始输出（stdout+stderr 合并）落盘目录。
-# 这些 .txt 是"实际结果"的字节级原始凭据，测试报告中的 Result 列直接引用其原文。
-# 目录名与扩展名刻意避开项目 .gitignore 中的 `logs/`、`*.log` 规则，
-# 以便原始输出能随测试报告一同纳入版本管理、作为可复核的证据提交。
 LOG_DIR = os.path.join(SCRIPT_DIR, "console_output")
 LOG_EXT = ".txt"
 
-# --------------------------------------------------------------------------
-# Test Case 元数据表：Test Case ID -> 用例描述（用于生成测试用例表）
-# 字段与《软件测试用例表》一一对应
-# --------------------------------------------------------------------------
 TESTCASE_META = {
     "test_KY_TC_001_app_start_from_project_root": dict(
         tc_id="KY-TC-001",
@@ -207,12 +191,53 @@ TESTCASE_META = {
                   "Content-Type；3) 释放并恢复 camera 全局变量。",
         expected="HTTP 200，Content-Type 为 multipart/x-mixed-replace（流式响应已建立）",
     ),
+    "test_KY_TC_013_start_skips_capture_when_camera_exists": dict(
+        tc_id="KY-TC-013",
+        item="路由 /start （start_detection 视图函数）—— 判定假分支",
+        title="camera 非 None 时重复点击 Start，跳过重复初始化，不重复占用设备",
+        criticality="P1",
+        precondition="已执行一次 POST /start，camera 非 None（服务已处于运行状态）",
+        input="HTTP POST /start（在 camera 已存在的情况下再次点击，重复 2 次）",
+        procedure="1) 打桩 cv2.VideoCapture 返回 mock 相机并统计调用次数；\n"
+                  "2) 首次 POST /start 建立 camera（判定真分支，作为前置条件）；\n"
+                  "3) 连续再次 POST /start（判定假分支）；\n"
+                  "4) 检查 VideoCapture 累计调用次数、camera 对象同一性与页面渲染。",
+        expected="行 128 判定为假 → 跳过行 129 → 行 131；第二次调用后 VideoCapture 累计调用次数"
+                 "仍为 1；页面照常渲染（stream=True，Stop Detection 按钮与视频流标签齐全），"
+                 "不出现设备被重复打开导致的卡死或黑屏",
+    ),
+    "test_KY_TC_014_stop_releases_camera_when_running": dict(
+        tc_id="KY-TC-014",
+        item="路由 /stop （stop_detection 视图函数）—— 判定真分支",
+        title="摄像头运行中调用 Stop，释放设备、复位全局变量并重定向",
+        criticality="P0",
+        precondition="camera 为已打开的 mock 对象（模拟运行中的摄像头）",
+        input="HTTP POST /stop（camera != None）",
+        procedure="1) 将全局 camera 置为 mock 相机；\n"
+                  "2) POST /stop；\n"
+                  "3) 检查 release() 调用次数、全局 camera 复位情况与响应状态码/重定向目标；\n"
+                  "4) 跟随 302 重定向 GET /real_time，捕获模板上下文。",
+        expected="行 174 判定为真 → 行 175 release → 行 176 置 None → 行 178 重定向；"
+                 "release() 被调用 1 次；全局 camera 恢复为 None；返回 302 指向 /real_time；"
+                 "跟随后页面按钮为蓝色 Start",
+    ),
+    "test_KY_TC_015_stop_without_start_is_idempotent": dict(
+        tc_id="KY-TC-015",
+        item="路由 /stop （stop_detection 视图函数）—— 判定假分支",
+        title="未启动即停止：不抛异常、直接重定向，连续点击行为一致（幂等）",
+        criticality="P1",
+        precondition="camera 为 None（服务刚启动，从未点击 Start）",
+        input="HTTP POST /stop（camera is None），连续调用 3 次",
+        procedure="1) 确认全局 camera 为 None；\n"
+                  "2) 连续 3 次 POST /stop；\n"
+                  "3) 检查每次响应的状态码、Location 与全局 camera 取值；\n"
+                  "4) GET /real_time 捕获模板上下文，复核 stream 取值。",
+        expected="行 174 判定为假 → 跳过 175–176 → 行 178 重定向；不抛 AttributeError；"
+                 "直接 302 回 /real_time；连续多次 POST /stop 行为一致（幂等）",
+    ),
 }
 
 
-# --------------------------------------------------------------------------
-# 工具函数
-# --------------------------------------------------------------------------
 def port_in_use(host=HOST, port=PORT):
     """检测端口是否已被占用（用于预置条件判定）"""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -329,9 +354,28 @@ def encode_jpeg_bytes(img):
     return buffer.tobytes()
 
 
-# --------------------------------------------------------------------------
-# 测试结果记录：保存每个用例的"实际结果"，供最终测试用例表使用
-# --------------------------------------------------------------------------
+def capture_template_context(flask_app, request_callable):
+    """
+    执行一次请求，并捕获本次渲染的模板名与模板上下文变量。
+
+    用途：直接断言模板变量（如 stream）的真实取值，而不是仅对渲染后的 HTML
+         做文本匹配。返回 (响应对象, [(模板名, 上下文字典), ...])，顺序即渲染顺序。
+    """
+    from flask import template_rendered
+
+    rendered = []
+
+    def _record(sender, template, context, **extra):  
+        rendered.append((template.name, dict(context)))
+
+    template_rendered.connect(_record, flask_app)
+    try:
+        response = request_callable()
+    finally:
+        template_rendered.disconnect(_record, flask_app)
+    return response, rendered
+
+
 ACTUAL_RESULTS = {}   # test_method_name -> str
 
 
@@ -339,9 +383,6 @@ def record(method_name, text):
     ACTUAL_RESULTS[method_name] = text
 
 
-# --------------------------------------------------------------------------
-# 测试用例
-# --------------------------------------------------------------------------
 @unittest.skipUnless(os.path.isfile(APP_PATH), "被测对象 app.py 不存在")
 class TestAppStartupFromProjectRoot(unittest.TestCase):
     """测试项：app.py 命令行启动 —— 正常根目录启动"""
@@ -462,7 +503,7 @@ class TestAppWhiteBox(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls._orig_cwd = os.getcwd()
-        os.chdir(PROJECT_ROOT)                    # 模块级相对路径加载模型所需
+        os.chdir(PROJECT_ROOT)                 
         if PROJECT_ROOT not in sys.path:
             sys.path.insert(0, PROJECT_ROOT)
         import app as app_module
@@ -592,7 +633,6 @@ class TestAppWhiteBox(unittest.TestCase):
                "打桩检测框={}，四种 argmax 结果：\n  - {}".format(
                    face_box, "\n  - ".join(observed)))
 
-    # ---- 路由表 -----------------------------------------------------------
     def test_KY_TC_009_route_table_registered(self):
         """KY-TC-009 6 个业务路由及其 HTTP 方法注册正确"""
         rules = {}
@@ -614,7 +654,6 @@ class TestAppWhiteBox(unittest.TestCase):
                    "; ".join("{} {}".format(k, sorted(v)) for k, v in sorted(rules.items()))))
         self.assertEqual(expected, rules, "路由或 HTTP 方法与设计不一致")
 
-    # ---- /upload POST 分支（端到端，测试客户端） -------------------------
     def test_KY_TC_010_upload_post_no_face_via_test_client(self):
         """KY-TC-010 POST /upload 上传无人脸图片，页面回显 'No face detected'"""
         img = make_solid_image(width=200, height=200, color=(200, 200, 200))
@@ -674,10 +713,186 @@ class TestAppWhiteBox(unittest.TestCase):
         self.assertIn("multipart/x-mixed-replace", content_type or "",
                       "/video_feed 未返回混合替换流")
 
+    def test_KY_TC_013_start_skips_capture_when_camera_exists(self):
+        """KY-TC-013 start 判定假分支：camera 非 None 时重复点击不再占用设备
 
-# --------------------------------------------------------------------------
-# 测试用例表生成
-# --------------------------------------------------------------------------
+        打桩说明：将模块引用的 cv2.VideoCapture 替换为返回 mock 相机的桩并计数，
+        被测代码行 129 `camera = cv2.VideoCapture(0)` 是否被执行即可由调用次数判定。
+        """
+        fake_camera = mock.MagicMock(name="camera")
+        orig_camera = self.app.camera
+        observed = []
+        try:
+            with mock.patch.object(self.app.cv2, "VideoCapture",
+                                   return_value=fake_camera) as video_capture:
+                self.app.camera = None
+                with self.app.app.test_client() as client:
+                    # 前置条件：首次 POST /start，判定真分支，建立 camera
+                    first, first_rendered = capture_template_context(
+                        self.app.app, lambda: client.post("/start"))
+                    observed.append(
+                        "第 1 次 POST /start（camera 原为 None，走真分支）-> HTTP {}；"
+                        "VideoCapture 调用次数={}；camera 是否为 mock 对象={}；"
+                        "渲染模板={}；模板变量 stream={}".format(
+                            first.status_code, video_capture.call_count,
+                            self.app.camera is fake_camera,
+                            [name for name, _ in first_rendered],
+                            [ctx.get("stream") for _, ctx in first_rendered]))
+                    self.assertEqual(200, first.status_code, "首次 POST /start 页面未正常渲染")
+                    self.assertEqual(1, video_capture.call_count,
+                                     "首次 POST /start 应创建一次摄像头")
+                    self.assertIs(fake_camera, self.app.camera, "camera 应为桩相机")
+                    self.assertEqual([True], [ctx.get("stream") for _, ctx in first_rendered],
+                                     "首次 POST /start 后 stream 应为 True")
+
+           
+                    for click in (2, 3):
+                        resp, rendered = capture_template_context(
+                            self.app.app, lambda: client.post("/start"))
+                        body = resp.get_data(as_text=True)
+                        streams = [ctx.get("stream") for _, ctx in rendered]
+                        observed.append(
+                            "第 {} 次 POST /start（camera 非 None，走假分支→跳过行 129→行 131）"
+                            "-> HTTP {}；VideoCapture 累计调用次数={}；camera 仍为首次创建的"
+                            "同一 mock 对象={}；渲染模板={}；模板变量 stream={}；"
+                            "页面含 Stop Detection={}；页面含 video_feed 流标签={}".format(
+                                click, resp.status_code, video_capture.call_count,
+                                self.app.camera is fake_camera,
+                                [name for name, _ in rendered], streams,
+                                "Stop Detection" in body, "video_feed" in body))
+
+                        self.assertEqual(200, resp.status_code,
+                                         "camera 已存在时 POST /start 页面未正常渲染")
+                        self.assertEqual(1, video_capture.call_count,
+                                         "camera 已存在时不应再次调用 cv2.VideoCapture 占用设备")
+                        self.assertIs(fake_camera, self.app.camera,
+                                      "camera 不应被重新创建/覆盖")
+                        self.assertEqual([True], streams,
+                                         "重复 POST /start 后 stream 仍应为 True")
+                        self.assertIn("Stop Detection", body,
+                                      "重复点击后页面未正常渲染 Stop 按钮")
+                        self.assertIn("video_feed", body,
+                                      "重复点击后页面缺少视频流标签")
+
+                    video_capture.assert_called_once_with(0)
+        finally:
+            self.app.camera = orig_camera
+
+        record("test_KY_TC_013_start_skips_capture_when_camera_exists",
+               "打桩：cv2.VideoCapture -> mock 相机；\n  - {}".format("\n  - ".join(observed)))
+
+ 
+    def test_KY_TC_014_stop_releases_camera_when_running(self):
+        """KY-TC-014 stop 判定真分支：release → 置 None → 302 重定向"""
+        fake_camera = mock.MagicMock(name="camera")
+        orig_camera = self.app.camera
+        # 先声明后赋值：即使中途抛异常，finally 之后的断言也不会被 NameError 掩盖
+        status, location, release_calls, camera_after_stop = None, "", None, "未执行"
+        page, body, streams, observed = None, "", [], ""
+        try:
+            self.app.camera = fake_camera
+            with self.app.app.test_client() as client:
+                resp = client.post("/stop")
+                status = resp.status_code
+                location = resp.headers.get("Location", "")
+                release_calls = fake_camera.release.call_count
+                camera_after_stop = self.app.camera
+
+                # 跟随 302 重定向，检查释放后页面的模板变量与按钮状态
+                page, rendered = capture_template_context(
+                    self.app.app, lambda: client.get(location or "/real_time"))
+                body = page.get_data(as_text=True)
+                streams = [ctx.get("stream") for _, ctx in rendered]
+                observed = (
+                    "POST /stop（camera 为 mock 相机，走真分支→行 175 release→行 176 置 None"
+                    "→行 178 重定向）-> HTTP {}；Location={!r}；\n"
+                    "  - camera.release() 调用次数={}；\n"
+                    "  - 全局 camera 复位后取值={!r}；\n"
+                    "  - 跟随重定向 GET {} -> HTTP {}；渲染模板={}；模板变量 stream={}；\n"
+                    "  - 页面含 'Start Detection'={}；按钮 class 为蓝色 btn-primary={}；"
+                    "不含红色 btn-danger={}；不含 video_feed 流标签={}".format(
+                        status, location, release_calls, camera_after_stop,
+                        location or "/real_time", page.status_code,
+                        [name for name, _ in rendered], streams,
+                        "Start Detection" in body, "btn btn-primary btn-lg" in body,
+                        "btn-danger" not in body, "video_feed" not in body))
+        finally:
+            self.app.camera = orig_camera
+
+        self.assertEqual(302, status, "POST /stop 应返回 302 重定向")
+        self.assertTrue(location.endswith("/real_time"),
+                        "重定向目标应为 /real_time，实际为 {!r}".format(location))
+        self.assertEqual(1, release_calls, "camera.release() 应被调用 1 次")
+        self.assertIsNone(camera_after_stop, "停止后全局 camera 应恢复为 None")
+        self.assertIsNotNone(page, "未能取得重定向后的 /real_time 响应")
+        self.assertEqual(200, page.status_code, "跟随重定向后 /real_time 未返回 200")
+        self.assertEqual([False], streams,
+                         "释放后 GET /real_time 的模板变量 stream 应为 False")
+        self.assertIn("Start Detection", body, "释放后页面按钮文案应为 Start Detection")
+        self.assertIn("btn btn-primary btn-lg", body, "释放后页面按钮应为蓝色 btn-primary")
+        self.assertNotIn("video_feed", body, "释放后页面不应再包含视频流标签")
+
+        record("test_KY_TC_014_stop_releases_camera_when_running", observed)
+
+
+    def test_KY_TC_015_stop_without_start_is_idempotent(self):
+        """KY-TC-015 stop 判定假分支：camera 为 None 时不抛异常、直接重定向且幂等"""
+        orig_camera = self.app.camera
+        observed = []
+        page, streams = None, []
+        try:
+            self.app.camera = None
+            with self.app.app.test_client() as client:
+                for attempt in (1, 2, 3):
+                    outcome = "无异常"
+                    try:
+                        resp, rendered = capture_template_context(
+                            self.app.app, lambda: client.post("/stop"))
+                        status = resp.status_code
+                        location = resp.headers.get("Location", "")
+                    except Exception as exc:  # noqa: BLE001 - 如实记录任意异常类型
+                        status, location, rendered = None, "", []
+                        outcome = "{}: {}".format(type(exc).__name__, exc)
+                        observed.append(
+                            "第 {} 次 POST /stop 抛出异常：{}".format(attempt, outcome))
+                        self.fail("未启动时 POST /stop 不应抛异常，实际抛出 {}: {}".format(
+                            type(exc).__name__, exc))
+
+                    observed.append(
+                        "第 {} 次 POST /stop（camera 为 None，走假分支→跳过行 175–176"
+                        "→行 178 重定向）-> HTTP {}；Location={!r}；异常={}；"
+                        "全局 camera 仍为 None={}".format(
+                            attempt, status, location, outcome,
+                            self.app.camera is None))
+
+                    self.assertEqual(302, status,
+                                     "未启动时 POST /stop 应返回 302 重定向")
+                    self.assertTrue(location.endswith("/real_time"),
+                                    "重定向目标应为 /real_time，实际为 {!r}".format(location))
+                    self.assertIsNone(self.app.camera,
+                                      "未启动时 POST /stop 不应创建 camera")
+
+                page, rendered = capture_template_context(
+                    self.app.app, lambda: client.get("/real_time"))
+                body = page.get_data(as_text=True)
+                streams = [ctx.get("stream") for _, ctx in rendered]
+                observed.append(
+                    "连续 3 次 POST /stop 行为一致（幂等）；GET /real_time -> HTTP {}；"
+                    "渲染模板={}；模板变量 stream={}；页面含 'Start Detection'={}".format(
+                        page.status_code, [name for name, _ in rendered], streams,
+                        "Start Detection" in body))
+        finally:
+            self.app.camera = orig_camera
+
+        self.assertIsNotNone(page, "未能取得 /real_time 响应")
+        self.assertEqual(200, page.status_code, "GET /real_time 未返回 200")
+        self.assertEqual([False], streams,
+                         "未启动状态下 GET /real_time 的模板变量 stream 应为 False")
+
+        record("test_KY_TC_015_stop_without_start_is_idempotent",
+               "\n  - ".join(observed))
+
+
 def extract_exception_summary(tb_text):
     """
     从 unittest 的 traceback 文本中取出"异常类型: 首行信息"，作为失败原因的摘要。
@@ -699,6 +914,75 @@ def extract_exception_summary(tb_text):
         return "{}: {}".format(exc_type, first_line)
     lines = [l for l in text.strip().splitlines() if l.strip()]
     return lines[-1] if lines else ""
+
+
+class TeeStream(object):
+    """
+    把写入同时转发到多个流（用于"一边打印到终端、一边留存原文"）。
+
+    仅做字节透传，不对内容做任何过滤或改写。
+    """
+
+    def __init__(self, *streams):
+        self.streams = streams
+
+    def write(self, data):
+        for s in self.streams:
+            s.write(data)
+        return len(data)
+
+    def flush(self):
+        for s in self.streams:
+            s.flush()
+
+    def isatty(self):
+        return False
+
+    def writable(self):
+        return True
+
+
+# 需要在 Result 列中额外附上"终端输出原文"的用例（新增白盒用例：全部在进程内执行，
+# 没有子进程控制台日志，故直接引用 unittest 运行器打印到终端的原文片段作为证据）
+TERMINAL_OUTPUT_METHODS = (
+    "test_KY_TC_013_start_skips_capture_when_camera_exists",
+    "test_KY_TC_014_stop_releases_camera_when_running",
+    "test_KY_TC_015_stop_without_start_is_idempotent",
+)
+
+
+def extract_terminal_output(runner_output, method_name):
+    """
+    从 unittest 运行器的完整终端输出中截取指定用例的**原文片段**。
+
+    截取规则（只切片，不改写任何字符）：
+        · 起点：首个包含该用例方法名的行（即该用例的输出块首行）；
+        · 终点：下一条用例名所在行，或运行汇总分隔行之前；
+    若找不到该用例的输出块，返回空串。
+    """
+    lines = runner_output.splitlines()
+    start = None
+    for index, line in enumerate(lines):
+        if method_name in line:
+            start = index
+            break
+    if start is None:
+        return ""
+
+    def _is_block_end(text):
+        stripped = text.strip()
+        return (stripped.startswith("test_")           # 下一条用例
+                or stripped.startswith("---")          # 汇总分隔线
+                or stripped.startswith("Ran ")
+                or stripped.startswith("OK")
+                or stripped.startswith("FAILED"))
+
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        if _is_block_end(lines[index]):
+            end = index
+            break
+    return "\n".join(lines[start:end])
 
 
 def render_testcase_table(result, stream):
@@ -763,7 +1047,6 @@ def render_testcase_table(result, stream):
     stream.write("\n")
 
 
-# Remark 列：每个用例使用的测试方法
 REVIEW_METHOD = {
     "KY-TC-001": " 集成测试：真实子进程命令行启动 + 端口/HTTP 探活；语句覆盖模块级初始化代码。"
                  "控制台原文存于 console_output/KY-TC-001_console.txt",
@@ -781,12 +1064,16 @@ REVIEW_METHOD = {
     "KY-TC-011": "集成测试（Flask test_client）：路径覆盖 real_time 视图",
     "KY-TC-012": "集成测试（Flask test_client，非缓冲）：仅读取响应头即结束，"
                  "验证流式响应的 Content-Type（等价类：摄像头不可用）",
+    "KY-TC-013": "白盒单元测试：判定覆盖（行 128 `if camera is None` 取假分支 → 跳过行 129 → "
+                 "行 131）+ 打桩（mock cv2.VideoCapture 计数），验证重复点击不重复占用设备",
+    "KY-TC-014": "白盒单元测试：判定覆盖（行 174 `if camera:` 取真分支 → 行 175 release → "
+                 "行 176 置 None → 行 178 重定向）+ 打桩 mock 相机，并用 template_rendered "
+                 "信号直接断言模板变量 stream",
+    "KY-TC-015": "白盒单元测试：判定覆盖（行 174 取假分支 → 跳过行 175–176 → 行 178 重定向）"
+                 "+ 异常安全性与幂等性验证（连续 3 次调用）",
 }
 
 
-# --------------------------------------------------------------------------
-# 入口
-# --------------------------------------------------------------------------
 def main():
     print("=" * 100)
     print("软件测试：白盒单元测试 —— 被测对象 {}".format(APP_PATH))
@@ -802,10 +1089,22 @@ def main():
     suite.addTests(loader.loadTestsFromTestCase(TestAppStartupFromParentDirectory))
     suite.addTests(loader.loadTestsFromTestCase(TestAppWhiteBox))
 
-    runner = unittest.TextTestRunner(verbosity=2)
+    terminal_capture = io.StringIO()
+    runner = unittest.TextTestRunner(
+        stream=TeeStream(sys.stdout, terminal_capture), verbosity=2)
     result = runner.run(suite)
 
-    # 执行完毕后生成《软件测试用例表》并落盘为 Markdown 报告
+  
+    terminal_output = terminal_capture.getvalue()
+    for method_name in TERMINAL_OUTPUT_METHODS:
+        snippet = extract_terminal_output(terminal_output, method_name)
+        if snippet:
+            ACTUAL_RESULTS[method_name] = (
+                ACTUAL_RESULTS.get(method_name, "")
+                + "\n\n【终端输出（原文，未截断、未修改）】\n" + snippet
+            ).strip()
+
+   
     render_testcase_table(result, sys.stdout)
 
     report_path = os.path.join(SCRIPT_DIR, "ky_white_1_test_report.md")
