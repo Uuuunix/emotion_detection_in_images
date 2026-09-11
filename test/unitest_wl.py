@@ -90,6 +90,49 @@ class WhiteBoxTests(unittest.TestCase):
         np.testing.assert_array_equal(result[60, 200], [255, 0, 0])
         self.assertEqual(emotion, "Sad", "当前接口只返回最后一个情绪，D-03 仍存在")
 
+    def test_wb03_should_return_all_emotions(self):
+        """WB-03 补充：按多人结果完整性要求返回列表，当前实现应失败。"""
+        image = np.full((240, 360, 3), 128, dtype=np.uint8)
+        self.model.predict.side_effect = [
+            np.array([[0.90, 0.03, 0.03, 0.04]]),  # 第一张脸 Happy
+            np.array([[0.03, 0.90, 0.03, 0.04]]),  # 第二张脸 Sad
+        ]
+        with self.faces([(30, 60, 100, 100), (200, 60, 100, 100)]):
+            _, emotions = self.subject.detect_faces_and_emotions(image)
+
+        self.assertEqual(self.model.predict.call_count, 2)
+        # 以列表承载全部结果是 D-03 的修复验收要求，当前字符串接口尚未实现。
+        # 不加 expectedFailure，让 unittest 明确报告 FAIL。
+        self.assertEqual(
+            emotions, ["Happy", "Sad"],
+            "D-03：两张脸均已预测，但返回值未保留全部情绪",
+        )
+
+    def test_wb04_min_size_contract(self):
+        """WB-04：校验 minSize 参数和边界路径；31×31 不保证检出。"""
+        scenarios = [(29, [], 0), (30, [(20, 30, 30, 30)], 1), (31, [(20, 30, 31, 31)], 1)]
+        for size, boxes, expected_calls in scenarios:
+            with self.subTest(mock_face_size=size):
+                self.model.predict.reset_mock()
+                image = np.full((100, 100, 3), 128, dtype=np.uint8)
+                expected_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+                with self.faces(boxes) as cascade:
+                    _, emotion = self.subject.detect_faces_and_emotions(image)
+                cascade.detectMultiScale.assert_called_once()
+                np.testing.assert_array_equal(cascade.detectMultiScale.call_args.args[0], expected_gray)
+                self.assertEqual(cascade.detectMultiScale.call_args.kwargs,
+                                 dict(scaleFactor=1.1, minNeighbors=5, minSize=(30, 30)))
+                self.assertEqual(self.model.predict.call_count, expected_calls)
+                self.assertEqual(emotion, "Happy" if boxes else "No face detected")
+        # 真实检测器：整张图只有 29×29，容不下最小 30×30 的检测框。
+        # 上述 mock 不能证明真实 Haar 对 30/31 像素人脸的召回率。
+        self.model.predict.reset_mock()
+        small = np.full((29, 29, 3), 128, dtype=np.uint8)
+        result, emotion = self.subject.detect_faces_and_emotions(small)
+        self.assertEqual(emotion, "No face detected")
+        np.testing.assert_array_equal(result, np.full((29, 29, 3), 128, dtype=np.uint8))
+        self.model.predict.assert_not_called()
+
 def test_start_creates_camera_once(client):
     with patch('app.cv2.VideoCapture') as vc:
         vc.return_value = MagicMock(isOpened=lambda: True)
