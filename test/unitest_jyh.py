@@ -126,3 +126,42 @@ def test_wb12_first_start_creates_camera_and_enables_stream(client):
     assert app_module.camera is fake_camera
     assert b"video_feed" in response.data
     assert b"Stop Detection" in response.data
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="D-02: upload() indexes request.files directly instead of handling a missing image",
+)
+def test_d02_missing_image_field_should_be_handled_gracefully(client):
+    """A missing image field must not expose Flask's default 400 error page."""
+    response = client.post("/upload", data={"other": "1"})
+
+    assert response.status_code in {200, 302}
+    if response.status_code == 302:
+        assert response.headers["Location"].endswith("/upload")
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="D-01: upload() does not reject the None returned by cv2.imdecode",
+)
+def test_d01_invalid_image_should_be_rejected_before_detection(client):
+    """Invalid bytes must be handled without passing None into face detection."""
+    processed_image = np.zeros((2, 2, 3), dtype=np.uint8)
+
+    with (
+        patch.object(app_module.cv2, "imdecode", return_value=None),
+        patch.object(
+            app_module,
+            "detect_faces_and_emotions",
+            return_value=(processed_image, "unused"),
+        ) as detect,
+    ):
+        response = client.post(
+            "/upload",
+            data={"image": (io.BytesIO(b"not an image"), "fake.jpg")},
+            content_type="multipart/form-data",
+        )
+
+    assert response.status_code in {200, 302}
+    detect.assert_not_called()
