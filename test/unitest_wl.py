@@ -55,6 +55,22 @@ class WhiteBoxTests(unittest.TestCase):
         self.assertTrue(np.any(np.all(result == (255, 0, 0), axis=-1)))
         self.assertTrue(np.any(np.all(result == (0, 255, 0), axis=-1)))
 
+    def test_wb02_no_face(self):
+        """WB-02：真实 Haar 检测纯灰图，无脸时原样提前返回。"""
+        image = np.full((512, 512, 3), 128, dtype=np.uint8)
+        before = image.copy()
+        self.assertFalse(self.subject.face_cascade.empty())
+        with patch.object(cv2, "rectangle", wraps=cv2.rectangle) as rectangle, \
+                patch.object(cv2, "putText", wraps=cv2.putText) as text:
+            result, emotion = self.subject.detect_faces_and_emotions(image)
+        self.assertIs(result, image)
+        np.testing.assert_array_equal(result, before)
+        self.assertEqual(emotion, "No face detected")
+        self.model.predict.assert_not_called()
+        rectangle.assert_not_called()
+        text.assert_not_called()
+
+    
 
 def test_start_creates_camera_once(client):
     with patch('app.cv2.VideoCapture') as vc:
@@ -62,6 +78,7 @@ def test_start_creates_camera_once(client):
         client.post('/start')
         client.post('/start')          # 第二次应走 camera is None 的假分支
         assert vc.call_count == 1      # WB-13 断言
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
