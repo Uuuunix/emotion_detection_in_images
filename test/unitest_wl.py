@@ -70,7 +70,25 @@ class WhiteBoxTests(unittest.TestCase):
         rectangle.assert_not_called()
         text.assert_not_called()
 
-    
+    def test_wb03_two_faces_last_result(self):
+        """WB-03：循环两次；记录 D-03 的现有行为，返回最后一张脸。"""
+        image = np.full((240, 360, 3), 128, dtype=np.uint8)
+        self.model.predict.side_effect = [
+            np.array([[0.90, 0.03, 0.03, 0.04]]),
+            np.array([[0.03, 0.90, 0.03, 0.04]]),
+        ]
+        with self.faces([(30, 60, 100, 100), (200, 60, 100, 100)]), \
+                patch.object(cv2, "rectangle", wraps=cv2.rectangle) as rectangle, \
+                patch.object(cv2, "putText", wraps=cv2.putText) as text:
+            result, emotion = self.subject.detect_faces_and_emotions(image)
+        self.assertEqual(self.model.predict.call_count, 2)
+        self.assertEqual(rectangle.call_count, 2)
+        self.assertEqual(text.call_count, 2)
+        self.assertEqual([c.args[1] for c in text.call_args_list], ["Happy", "Sad"])
+        self.assertEqual([c.args[1] for c in rectangle.call_args_list], [(30, 60), (200, 60)])
+        np.testing.assert_array_equal(result[60, 30], [255, 0, 0])
+        np.testing.assert_array_equal(result[60, 200], [255, 0, 0])
+        self.assertEqual(emotion, "Sad", "当前接口只返回最后一个情绪，D-03 仍存在")
 
 def test_start_creates_camera_once(client):
     with patch('app.cv2.VideoCapture') as vc:
