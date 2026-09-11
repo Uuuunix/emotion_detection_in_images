@@ -133,6 +133,26 @@ class WhiteBoxTests(unittest.TestCase):
         np.testing.assert_array_equal(result, np.full((29, 29, 3), 128, dtype=np.uint8))
         self.model.predict.assert_not_called()
 
+    def test_wb05_preprocessing_tensor(self):
+        """WB-05：检查真实裁剪、缩放、RGB、float32、归一化和批次维度。"""
+        image = np.full((180, 180, 3), 7, dtype=np.uint8)
+        # 非灰色、非方形 ROI；水平分色同时校验裁剪位置和 resize。
+        image[50:130, 30:90] = (10, 20, 240)
+        image[50:130, 90:150] = (230, 40, 30)
+        with self.faces([(30, 50, 120, 80)]):
+            self.subject.detect_faces_and_emotions(image)
+        self.model.predict.assert_called_once()
+        tensor = self.model.predict.call_args.args[0]
+        self.assertEqual(tensor.shape, (1, 96, 96, 3))
+        self.assertEqual(tensor.dtype, np.dtype("float32"))
+        self.assertGreaterEqual(float(tensor.min()), 0.0)
+        self.assertLessEqual(float(tensor.max()), 1.0)
+        np.testing.assert_allclose(tensor[0, 48, 24], np.array([240, 20, 10]) / 255, atol=1e-6)
+        np.testing.assert_allclose(tensor[0, 48, 72], np.array([30, 40, 230]) / 255, atol=1e-6)
+        # 当前代码先画框再裁剪，ROI 左上角因此变成蓝色（RGB 为 0,0,1）。
+        # 这是现有行为记录；张量格式正确不代表模型输入没有被标注污染。
+        np.testing.assert_allclose(tensor[0, 0, 0], [0, 0, 1], atol=1e-6)
+
 def test_start_creates_camera_once(client):
     with patch('app.cv2.VideoCapture') as vc:
         vc.return_value = MagicMock(isOpened=lambda: True)
