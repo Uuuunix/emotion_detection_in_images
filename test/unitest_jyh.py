@@ -165,3 +165,55 @@ def test_d01_invalid_image_should_be_rejected_before_detection(client):
 
     assert response.status_code in {200, 302}
     detect.assert_not_called()
+
+
+def test_wb13_no_face_skips_model_and_returns_original_image():
+    """WB-13: the zero-face branch returns before emotion prediction."""
+    image = np.zeros((32, 32, 3), dtype=np.uint8)
+    cascade = MagicMock(name="face_cascade")
+    cascade.detectMultiScale.return_value = ()
+    fake_model = MagicMock(name="model")
+
+    with (
+        patch.object(app_module, "face_cascade", cascade),
+        patch.object(app_module, "model", fake_model),
+    ):
+        processed, emotion = app_module.detect_faces_and_emotions(image)
+
+    assert processed is image
+    assert emotion == "No face detected"
+    cascade.detectMultiScale.assert_called_once()
+    _, kwargs = cascade.detectMultiScale.call_args
+    assert kwargs == {
+        "scaleFactor": 1.1,
+        "minNeighbors": 5,
+        "minSize": (30, 30),
+    }
+    fake_model.predict.assert_not_called()
+
+
+def test_wb14_single_face_is_resized_normalized_and_classified():
+    """WB-14: one face follows the complete preprocessing path."""
+    image = np.full((80, 80, 3), (10, 20, 30), dtype=np.uint8)
+    cascade = MagicMock(name="face_cascade")
+    cascade.detectMultiScale.return_value = np.array([[8, 10, 40, 45]])
+    fake_model = MagicMock(name="model")
+    fake_model.predict.return_value = np.array([[0.05, 0.10, 0.80, 0.05]])
+
+    with (
+        patch.object(app_module, "face_cascade", cascade),
+        patch.object(app_module, "model", fake_model),
+        patch.object(app_module.cv2, "rectangle") as rectangle,
+        patch.object(app_module.cv2, "putText") as put_text,
+    ):
+        processed, emotion = app_module.detect_faces_and_emotions(image)
+
+    assert processed is image
+    assert emotion == "Surprise"
+    model_input = fake_model.predict.call_args.args[0]
+    assert model_input.shape == (1, 96, 96, 3)
+    assert model_input.dtype.kind == "f"
+    assert np.allclose(model_input[0, 0, 0], np.array([30, 20, 10]) / 255.0)
+    rectangle.assert_called_once_with(image, (8, 10), (48, 55), (255, 0, 0), 2)
+    assert put_text.call_args.args[1] == "Surprise"
+    assert put_text.call_args.args[2] == (8, 0)
