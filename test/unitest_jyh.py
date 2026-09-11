@@ -1,0 +1,128 @@
+"""White-box tests WB-07 through WB-12 for the Flask application."""
+
+import base64
+import io
+import re
+from unittest.mock import MagicMock, patch
+
+import cv2
+import numpy as np
+import pytest
+
+import app as app_module
+
+
+@pytest.fixture
+def client():
+    """Return an isolated Flask client and reset the global camera state."""
+    app_module.app.config.update(TESTING=True)
+    app_module.camera = None
+    with app_module.app.test_client() as test_client:
+        yield test_client
+    app_module.camera = None
+
+
+def test_wb07_upload_get_renders_empty_form(client):
+    """WB-07: GET /upload skips all POST-only statements."""
+    response = client.get("/upload")
+    assert response.status_code == 200
+    assert b"Upload an Image to Analyze" in response.data
+    assert b"Detected Emotion" not in response.data
+    assert b"data:image/jpeg;base64," not in response.data
+
+
+def test_wb08_empty_filename_redirects_without_decoding(client):
+    """WB-08: an empty filename takes the second predicate's true branch."""
+    with patch.object(app_module.cv2, "imdecode") as imdecode:
+        response = client.post(
+            "/upload",
+            data={"image": (io.BytesIO(b""), "")},
+            content_type="multipart/form-data",
+        )
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/upload")
+    imdecode.assert_not_called()
+
+
+def test_wb09_valid_upload_returns_emotion_and_decodable_jpeg(client):
+    """WB-09: a valid upload follows the longest path and returns base64 JPEG."""
+    decoded_image = np.zeros((4, 4, 3), dtype=np.uint8)
+    processed_image = np.full((4, 4, 3), 127, dtype=np.uint8)
+    encoded_jpeg = b"\xff\xd8\xff\xe0test-jpeg"
+    with (
+        patch.object(app_module.cv2, "imdecode", return_value=decoded_image) as imdecode,
+        patch.object(
+            app_module,
+            "detect_faces_and_emotions",
+            return_value=(processed_image, "Happy"),
+        ) as detect,
+        patch.object(
+            app_module.cv2,
+            "imencode",
+            return_value=(True, np.frombuffer(encoded_jpeg, dtype=np.uint8)),
+        ) as imencode,
+    ):
+        response = client.post(
+            "/upload",
+            data={"image": (io.BytesIO(b"valid-image-bytes"), "face.jpg")},
+            content_type="multipart/form-data",
+        )
+    assert response.status_code == 200
+    assert b"Detected Emotion" in response.data
+    assert b"Happy" in response.data
+    imdecode.assert_called_once()
+    assert imdecode.call_args.args[1] == cv2.IMREAD_COLOR
+    detect.assert_called_once_with(decoded_image)
+    imencode.assert_called_once_with(".jpg", processed_image)
+    match = re.search(rb"data:image/jpeg;base64,([^\"']+)", response.data)
+    assert match is not None
+    assert base64.b64decode(match.group(1)).startswith(b"\xff\xd8\xff")
+
+
+def test_wb10_upload_without_image_field_returns_400(client):
+    """WB-10: the current implementation exposes its missing-field 400 path."""
+    response = client.post("/upload", data={"other": "1"})
+    assert response.status_code == 400
+
+
+def test_wb11_invalid_image_returns_500(client):
+    """WB-11: an undecodable image currently reaches processing and returns 500."""
+    previous = app_module.app.config.get("PROPAGATE_EXCEPTIONS")
+    app_module.app.config["PROPAGATE_EXCEPTIONS"] = False
+
+    def fail_when_image_is_none(image):
+        assert image is None
+        raise cv2.error("imdecode returned None")
+
+    try:
+        with (
+            patch.object(app_module.cv2, "imdecode", return_value=None),
+            patch.object(
+                app_module,
+                "detect_faces_and_emotions",
+                side_effect=fail_when_image_is_none,
+            ) as detect,
+        ):
+            response = client.post(
+                "/upload",
+                data={"image": (io.BytesIO(b"not an image"), "fake.jpg")},
+                content_type="multipart/form-data",
+            )
+    finally:
+        app_module.app.config["PROPAGATE_EXCEPTIONS"] = previous
+    assert response.status_code == 500
+    detect.assert_called_once_with(None)
+
+
+def test_wb12_first_start_creates_camera_and_enables_stream(client):
+    """WB-12: the first POST /start creates camera zero exactly once."""
+    fake_camera = MagicMock(name="camera")
+    with patch.object(
+        app_module.cv2, "VideoCapture", return_value=fake_camera
+    ) as video_capture:
+        response = client.post("/start")
+    assert response.status_code == 200
+    video_capture.assert_called_once_with(0)
+    assert app_module.camera is fake_camera
+    assert b"video_feed" in response.data
+    assert b"Stop Detection" in response.data
