@@ -288,3 +288,29 @@ def test_wb18_stop_releases_camera_clears_state_and_redirects(client):
     assert response.headers["Location"].endswith("/real_time")
     fake_camera.release.assert_called_once_with()
     assert app_module.camera is None
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="D-03: multiple predictions are overwritten; only the final one is returned",
+)
+def test_d03_multiple_faces_should_return_all_detected_emotions():
+    """Every detected face should retain its own emotion result."""
+    image = np.zeros((100, 100, 3), dtype=np.uint8)
+    cascade = MagicMock(name="face_cascade")
+    cascade.detectMultiScale.return_value = np.array(
+        [[5, 5, 30, 30], [50, 50, 30, 30]]
+    )
+    fake_model = MagicMock(name="model")
+    fake_model.predict.side_effect = [
+        np.array([[0.90, 0.05, 0.03, 0.02]]),
+        np.array([[0.05, 0.90, 0.03, 0.02]]),
+    ]
+
+    with (
+        patch.object(app_module, "face_cascade", cascade),
+        patch.object(app_module, "model", fake_model),
+    ):
+        _, emotions = app_module.detect_faces_and_emotions(image)
+
+    assert emotions == ["Happy", "Sad"]
