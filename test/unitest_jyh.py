@@ -165,3 +165,152 @@ def test_d01_invalid_image_should_be_rejected_before_detection(client):
 
     assert response.status_code in {200, 302}
     detect.assert_not_called()
+
+
+def test_wb13_no_face_skips_model_and_returns_original_image():
+    """WB-13: the zero-face branch returns before emotion prediction."""
+    image = np.zeros((32, 32, 3), dtype=np.uint8)
+    cascade = MagicMock(name="face_cascade")
+    cascade.detectMultiScale.return_value = ()
+    fake_model = MagicMock(name="model")
+
+    with (
+        patch.object(app_module, "face_cascade", cascade),
+        patch.object(app_module, "model", fake_model),
+    ):
+        processed, emotion = app_module.detect_faces_and_emotions(image)
+
+    assert processed is image
+    assert emotion == "No face detected"
+    cascade.detectMultiScale.assert_called_once()
+    _, kwargs = cascade.detectMultiScale.call_args
+    assert kwargs == {
+        "scaleFactor": 1.1,
+        "minNeighbors": 5,
+        "minSize": (30, 30),
+    }
+    fake_model.predict.assert_not_called()
+
+
+def test_wb14_single_face_is_resized_normalized_and_classified():
+    """WB-14: one face follows the complete preprocessing path."""
+    image = np.full((80, 80, 3), (10, 20, 30), dtype=np.uint8)
+    cascade = MagicMock(name="face_cascade")
+    cascade.detectMultiScale.return_value = np.array([[8, 10, 40, 45]])
+    fake_model = MagicMock(name="model")
+    fake_model.predict.return_value = np.array([[0.05, 0.10, 0.80, 0.05]])
+
+    with (
+        patch.object(app_module, "face_cascade", cascade),
+        patch.object(app_module, "model", fake_model),
+        patch.object(app_module.cv2, "rectangle") as rectangle,
+        patch.object(app_module.cv2, "putText") as put_text,
+    ):
+        processed, emotion = app_module.detect_faces_and_emotions(image)
+
+    assert processed is image
+    assert emotion == "Surprise"
+    model_input = fake_model.predict.call_args.args[0]
+    assert model_input.shape == (1, 96, 96, 3)
+    assert model_input.dtype.kind == "f"
+    assert np.allclose(model_input[0, 0, 0], np.array([30, 20, 10]) / 255.0)
+    rectangle.assert_called_once_with(image, (8, 10), (48, 55), (255, 0, 0), 2)
+    assert put_text.call_args.args[1] == "Surprise"
+    assert put_text.call_args.args[2] == (8, 0)
+
+
+def test_wb15_repeated_start_reuses_existing_camera(client):
+    """WB-15: the false camera-is-None branch does not reopen device zero."""
+    existing_camera = MagicMock(name="existing_camera")
+    app_module.camera = existing_camera
+
+    with patch.object(app_module.cv2, "VideoCapture") as video_capture:
+        response = client.post("/start")
+
+    assert response.status_code == 200
+    assert app_module.camera is existing_camera
+    video_capture.assert_not_called()
+    assert b"video_feed" in response.data
+
+
+def test_wb16_video_feed_stops_when_camera_read_fails(client):
+    """WB-16: a failed first camera read takes the generator break branch."""
+    fake_camera = MagicMock(name="camera")
+    fake_camera.read.return_value = (False, None)
+    app_module.camera = fake_camera
+
+    with patch.object(app_module, "detect_faces_and_emotions") as detect:
+        response = client.get("/video_feed")
+
+    assert response.status_code == 200
+    assert response.mimetype == "multipart/x-mixed-replace"
+    assert response.data == b""
+    fake_camera.read.assert_called_once_with()
+    detect.assert_not_called()
+
+
+def test_wb17_video_feed_yields_encoded_frame_then_stops(client):
+    """WB-17: a successful loop iteration yields one multipart JPEG frame."""
+    source_frame = np.zeros((4, 4, 3), dtype=np.uint8)
+    processed_frame = np.full((4, 4, 3), 127, dtype=np.uint8)
+    fake_camera = MagicMock(name="camera")
+    fake_camera.read.side_effect = [(True, source_frame), (False, None)]
+    app_module.camera = fake_camera
+    encoded = np.frombuffer(b"encoded-jpeg", dtype=np.uint8)
+
+    with (
+        patch.object(
+            app_module,
+            "detect_faces_and_emotions",
+            return_value=(processed_frame, "Neutral"),
+        ) as detect,
+        patch.object(app_module.cv2, "imencode", return_value=(True, encoded)) as encode,
+    ):
+        response = client.get("/video_feed")
+
+    assert response.status_code == 200
+    assert response.data == (
+        b"--frame\r\nContent-Type: image/jpeg\r\n\r\nencoded-jpeg\r\n"
+    )
+    detect.assert_called_once_with(source_frame)
+    encode.assert_called_once_with(".jpg", processed_frame)
+    assert fake_camera.read.call_count == 2
+
+
+def test_wb18_stop_releases_camera_clears_state_and_redirects(client):
+    """WB-18: the true stop branch releases and clears the global camera."""
+    fake_camera = MagicMock(name="camera")
+    app_module.camera = fake_camera
+
+    response = client.post("/stop")
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/real_time")
+    fake_camera.release.assert_called_once_with()
+    assert app_module.camera is None
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="D-03: multiple predictions are overwritten; only the final one is returned",
+)
+def test_d03_multiple_faces_should_return_all_detected_emotions():
+    """Every detected face should retain its own emotion result."""
+    image = np.zeros((100, 100, 3), dtype=np.uint8)
+    cascade = MagicMock(name="face_cascade")
+    cascade.detectMultiScale.return_value = np.array(
+        [[5, 5, 30, 30], [50, 50, 30, 30]]
+    )
+    fake_model = MagicMock(name="model")
+    fake_model.predict.side_effect = [
+        np.array([[0.90, 0.05, 0.03, 0.02]]),
+        np.array([[0.05, 0.90, 0.03, 0.02]]),
+    ]
+
+    with (
+        patch.object(app_module, "face_cascade", cascade),
+        patch.object(app_module, "model", fake_model),
+    ):
+        _, emotions = app_module.detect_faces_and_emotions(image)
+
+    assert emotions == ["Happy", "Sad"]
