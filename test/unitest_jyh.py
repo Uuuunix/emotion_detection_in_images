@@ -217,3 +217,74 @@ def test_wb14_single_face_is_resized_normalized_and_classified():
     rectangle.assert_called_once_with(image, (8, 10), (48, 55), (255, 0, 0), 2)
     assert put_text.call_args.args[1] == "Surprise"
     assert put_text.call_args.args[2] == (8, 0)
+
+
+def test_wb15_repeated_start_reuses_existing_camera(client):
+    """WB-15: the false camera-is-None branch does not reopen device zero."""
+    existing_camera = MagicMock(name="existing_camera")
+    app_module.camera = existing_camera
+
+    with patch.object(app_module.cv2, "VideoCapture") as video_capture:
+        response = client.post("/start")
+
+    assert response.status_code == 200
+    assert app_module.camera is existing_camera
+    video_capture.assert_not_called()
+    assert b"video_feed" in response.data
+
+
+def test_wb16_video_feed_stops_when_camera_read_fails(client):
+    """WB-16: a failed first camera read takes the generator break branch."""
+    fake_camera = MagicMock(name="camera")
+    fake_camera.read.return_value = (False, None)
+    app_module.camera = fake_camera
+
+    with patch.object(app_module, "detect_faces_and_emotions") as detect:
+        response = client.get("/video_feed")
+
+    assert response.status_code == 200
+    assert response.mimetype == "multipart/x-mixed-replace"
+    assert response.data == b""
+    fake_camera.read.assert_called_once_with()
+    detect.assert_not_called()
+
+
+def test_wb17_video_feed_yields_encoded_frame_then_stops(client):
+    """WB-17: a successful loop iteration yields one multipart JPEG frame."""
+    source_frame = np.zeros((4, 4, 3), dtype=np.uint8)
+    processed_frame = np.full((4, 4, 3), 127, dtype=np.uint8)
+    fake_camera = MagicMock(name="camera")
+    fake_camera.read.side_effect = [(True, source_frame), (False, None)]
+    app_module.camera = fake_camera
+    encoded = np.frombuffer(b"encoded-jpeg", dtype=np.uint8)
+
+    with (
+        patch.object(
+            app_module,
+            "detect_faces_and_emotions",
+            return_value=(processed_frame, "Neutral"),
+        ) as detect,
+        patch.object(app_module.cv2, "imencode", return_value=(True, encoded)) as encode,
+    ):
+        response = client.get("/video_feed")
+
+    assert response.status_code == 200
+    assert response.data == (
+        b"--frame\r\nContent-Type: image/jpeg\r\n\r\nencoded-jpeg\r\n"
+    )
+    detect.assert_called_once_with(source_frame)
+    encode.assert_called_once_with(".jpg", processed_frame)
+    assert fake_camera.read.call_count == 2
+
+
+def test_wb18_stop_releases_camera_clears_state_and_redirects(client):
+    """WB-18: the true stop branch releases and clears the global camera."""
+    fake_camera = MagicMock(name="camera")
+    app_module.camera = fake_camera
+
+    response = client.post("/stop")
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/real_time")
+    fake_camera.release.assert_called_once_with()
+    assert app_module.camera is None
