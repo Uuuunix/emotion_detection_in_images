@@ -154,6 +154,7 @@ def test_edi_tc_028_sampled_accuracy_on_real_fer_data(client, subject):
             correct += 1
             per_class[truth]["正确"] += 1
 
+    assert total > 0, "没有成功读取任何 FER 测试样本"
     detection_rate = detected / total
     accuracy = correct / detected if detected else 0.0
 
