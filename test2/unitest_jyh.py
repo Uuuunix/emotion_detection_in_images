@@ -22,6 +22,7 @@ FER_ROOT = PROJECT_ROOT / "data-balck-box-test" / "test"
 
 CLASS_LABELS = ["Happy", "Sad", "Surprise", "Neutral"]
 FER_LABELS = ["happy", "sad", "surprise", "neutral"]
+MALFORMED_UPLOADS = ["not_image.jpg", "empty.jpg"]
 SAMPLES_PER_CLASS = 10
 FACE_SIZE = 224
 BENCHMARK_RUNS = 5
@@ -59,7 +60,7 @@ def _result_emotion(body: bytes) -> str | None:
     reason="交叉验证队友已登记的缺陷（jyh D-01）：cv2.imdecode 对非图片内容返回 None、"
            "对空字节流直接抛 cv2.error，两条路径都没有兜底，生产模式下都是 HTTP 500",
 )
-@pytest.mark.parametrize("name", ["not_image.jpg", "empty.jpg"])
+@pytest.mark.parametrize("name", MALFORMED_UPLOADS)
 def test_edi_tc_025_malformed_upload_does_not_crash(client, subject, name):
     """EDI-TC-025：非图片/空文件内容不应导致服务 500。
 
