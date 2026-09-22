@@ -21,6 +21,7 @@ PROJECT_ROOT = TEST_DIR.parent
 FER_ROOT = PROJECT_ROOT / "data-balck-box-test" / "test"
 
 CLASS_LABELS = ["Happy", "Sad", "Surprise", "Neutral"]
+FER_LABELS = ["happy", "sad", "surprise", "neutral"]
 SAMPLES_PER_CLASS = 10
 FACE_SIZE = 224
 
@@ -121,13 +122,13 @@ def test_edi_tc_028_sampled_accuracy_on_real_fer_data(client, subject):
     实测值写入 ``reports/accuracy_metrics.json`` 供测试报告引用。
     """
     samples = []
-    for emotion in ["happy", "sad", "surprise", "neutral"]:
+    for emotion in FER_LABELS:
         files = sorted((FER_ROOT / emotion).glob("*.jpg"))[:SAMPLES_PER_CLASS]
         samples += [(emotion, path) for path in files]
     assert len(samples) == SAMPLES_PER_CLASS * 4
 
     total = detected = correct = 0
-    per_class = {e: {"总数": 0, "检出": 0, "正确": 0} for e in ["happy", "sad", "surprise", "neutral"]}
+    per_class = {e: {"总数": 0, "检出": 0, "正确": 0} for e in FER_LABELS}
 
     for truth, path in samples:
         image = cv2.imread(str(path))
