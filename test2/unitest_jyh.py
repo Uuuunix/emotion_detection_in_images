@@ -24,6 +24,7 @@ CLASS_LABELS = ["Happy", "Sad", "Surprise", "Neutral"]
 FER_LABELS = ["happy", "sad", "surprise", "neutral"]
 SAMPLES_PER_CLASS = 10
 FACE_SIZE = 224
+BENCHMARK_RUNS = 5
 
 
 def upload(client, name: str, content: bytes):
@@ -195,16 +196,16 @@ def test_edi_tc_029_single_frame_latency_within_realtime_budget(subject):
     if len(faces) > 0:
         subject.detect_faces_and_emotions(frame.copy())
         start = time.perf_counter()
-        for _ in range(5):
+        for _ in range(BENCHMARK_RUNS):
             subject.detect_faces_and_emotions(frame.copy())
-        elapsed_ms = (time.perf_counter() - start) / 5 * 1000
+        elapsed_ms = (time.perf_counter() - start) / BENCHMARK_RUNS * 1000
         detail = f"完整单帧链路（检出 {len(faces)} 张人脸）"
     else:
         face = np.zeros((1, 96, 96, 3), np.float32)
         start = time.perf_counter()
-        for _ in range(5):
+        for _ in range(BENCHMARK_RUNS):
             subject.model.predict(face, verbose=0)
-        elapsed_ms = (time.perf_counter() - start) / 5 * 1000
+        elapsed_ms = (time.perf_counter() - start) / BENCHMARK_RUNS * 1000
         detail = "仅模型推理（本帧未检出人脸，取主导开销）"
 
     assert elapsed_ms <= 33.3, (
@@ -375,9 +376,6 @@ def test_fix_d05_latency_is_dominated_by_model_predict(subject):
     因此该缺陷的修复方向在模型/部署层（换轻量模型、开 GPU、降帧率），
     而不是在视图函数里做微优化——这一点必须写在缺陷报告里，避免给出错误的修复建议。
     """
-    import cv2
-    import time
-
     image = cv2.imread(str(DATA_DIR / "face_happy.jpg"))
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     faces = subject.face_cascade.detectMultiScale(gray, 1.1, 5, minSize=(30, 30))
@@ -386,18 +384,18 @@ def test_fix_d05_latency_is_dominated_by_model_predict(subject):
     x, y, w, h = faces[0]
 
     start = time.perf_counter()
-    for _ in range(5):
+    for _ in range(BENCHMARK_RUNS):
         face = image[y:y + h, x:x + w].copy()
         face = cv2.cvtColor(cv2.resize(face, (96, 96)), cv2.COLOR_BGR2RGB)
         face = np.expand_dims(face.astype(np.float32) / 255.0, axis=0)
-    preprocess_ms = (time.perf_counter() - start) / 5 * 1000
+    preprocess_ms = (time.perf_counter() - start) / BENCHMARK_RUNS * 1000
 
     batch = np.zeros((1, 96, 96, 3), np.float32)
     subject.model.predict(batch, verbose=0)
     start = time.perf_counter()
-    for _ in range(5):
+    for _ in range(BENCHMARK_RUNS):
         subject.model.predict(batch, verbose=0)
-    predict_ms = (time.perf_counter() - start) / 5 * 1000
+    predict_ms = (time.perf_counter() - start) / BENCHMARK_RUNS * 1000
 
     assert predict_ms > preprocess_ms * 10, (
         f"推理 {predict_ms:.1f} ms vs 预处理 {preprocess_ms:.2f} ms，"
