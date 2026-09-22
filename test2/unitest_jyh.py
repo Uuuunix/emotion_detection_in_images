@@ -66,7 +66,7 @@ def test_edi_tc_025_malformed_upload_does_not_crash(client, subject, name):
     抛进测试），这样"缺陷现象"才是用户真正看到的那一个。
     """
     with patch.dict(subject.app.config, {"PROPAGATE_EXCEPTIONS": False}):
-        resp = upload(client, name, (DATA_DIR / name).read_bytes())
+        resp = upload_fixture(client, name)
     assert resp.status_code != 500, f"上传 {name} 触发了 HTTP 500"
 
 
