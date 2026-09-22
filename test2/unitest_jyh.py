@@ -34,6 +34,11 @@ def upload(client, name: str, content: bytes):
     )
 
 
+def upload_fixture(client, name: str):
+    """上传 test/data 中的固定图片，统一测试文件读取方式。"""
+    return upload(client, name, (DATA_DIR / name).read_bytes())
+
+
 def _result_emotion(body: bytes) -> str | None:
     """从上传页 HTML 中解析实际给出的情绪文案。"""
     if b"No face detected" in body:
@@ -86,7 +91,7 @@ def test_edi_tc_026_other_formats_are_handled(client, name, expect_emotion):
     ``imdecode`` 对截断 JPEG 相当宽容，会返回一张上方可用区域的图。这是本次测试的
     一个认知修正：最初把它归入"畸形输入"是错的，实测证据（见测试报告）推翻了该假设。
     """
-    resp = upload(client, name, (DATA_DIR / name).read_bytes())
+    resp = upload_fixture(client, name)
     assert resp.status_code == 200
 
     emotion = _result_emotion(resp.data)
@@ -107,7 +112,7 @@ def test_edi_tc_027_multi_face_image_returns_one_of_four_labels(client, subject)
     manifest = json.loads((DATA_DIR / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["_haar检出结果"]["faces_grid.jpg"] == 4, "测试数据应先保证含 4 张人脸"
 
-    resp = upload(client, "faces_grid.jpg", (DATA_DIR / "faces_grid.jpg").read_bytes())
+    resp = upload_fixture(client, "faces_grid.jpg")
     assert resp.status_code == 200
     assert _result_emotion(resp.data) in CLASS_LABELS
 
