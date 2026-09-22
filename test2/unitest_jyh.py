@@ -1,5 +1,4 @@
 from __future__ import annotations
-import base64
 import io
 import json
 import time
@@ -9,7 +8,6 @@ import cv2
 import numpy as np
 import pytest
 import shutil
-import numpy as np
 import fixed_impl
 
 TEST_DIR = Path(__file__).resolve().parent
