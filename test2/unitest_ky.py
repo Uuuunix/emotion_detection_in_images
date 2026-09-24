@@ -5,6 +5,8 @@ from unittest.mock import patch
 
 import numpy as np
 
+NORM = 1.0 / 255.0
+
 
 # --------------------------------------------------------------------------
 # EDI-TC-001 / 002  模块级对象
@@ -47,7 +49,7 @@ def test_edi_tc_003_face_cascade_is_loaded(subject):
 
 
 # --------------------------------------------------------------------------
-# EDI-TC-004  detect_faces_and_emotions 的无人脸分支
+# EDI-TC-004 / 005  detect_faces_and_emotions 的分支覆盖
 # --------------------------------------------------------------------------
 def test_edi_tc_004_no_face_early_return_has_no_side_effect(subject, fake_cascade):
     """EDI-TC-004：未检出人脸时早返回，返回入参本身且不改写像素。"""
@@ -60,3 +62,50 @@ def test_edi_tc_004_no_face_early_return_has_no_side_effect(subject, fake_cascad
     assert emotion == "No face detected"
     assert returned is image, "无人脸分支应原样返回入参对象"
     assert np.array_equal(image, before), "无人脸分支不应修改图像像素"
+
+
+def test_edi_tc_005_face_branch_draws_and_maps_label(subject, fake_model, fake_cascade):
+    """EDI-TC-005：检出人脸时绘制矩形与文字，并按 argmax 映射到 class_labels。"""
+    image = np.full((240, 240, 3), 128, dtype=np.uint8)
+    before = image.copy()
+
+    for index, expected_label in enumerate(subject.class_labels):
+        probs = [0.03, 0.03, 0.03, 0.03]
+        probs[index] = 0.91
+        model = fake_model(probs)
+        with (
+            patch.object(subject, "model", model),
+            patch.object(subject, "face_cascade", fake_cascade([(40, 60, 100, 100)])),
+        ):
+            returned, emotion = subject.detect_faces_and_emotions(image.copy())
+
+        assert emotion == expected_label, f"argmax={index} 应映射为 {expected_label}"
+        assert returned.shape == before.shape
+        # 矩形颜色为 BGR(255,0,0) 纯蓝，绘制后该位置像素必被改写
+        assert not np.array_equal(returned, before), "应已绘制检测框"
+
+
+def test_edi_tc_006_preprocessing_spec_and_channel_order(subject, fake_model, fake_cascade):
+    """EDI-TC-006：送模型的张量规格为 (1,96,96,3)、归一化到 [0,1]、通道由 BGR 转为 RGB。"""
+    # 人脸区域使用非对称颜色 BGR=(10,200,30)；若未做 BGR2RGB 转换，通道顺序会不同
+    bgr = (10, 200, 30)
+    image = np.full((240, 240, 3), 128, dtype=np.uint8)
+    image[60:160, 40:140] = bgr
+
+    model = fake_model()
+    with (
+        patch.object(subject, "model", model),
+        patch.object(subject, "face_cascade", fake_cascade([(40, 60, 100, 100)])),
+    ):
+        subject.detect_faces_and_emotions(image)
+
+    tensor = model.captured_inputs[0]
+    assert tensor.shape == (1, 96, 96, 3)
+    assert tensor.min() >= 0.0 and tensor.max() <= 1.0
+
+    center = tensor[0, 48, 48]
+    expected_rgb = np.array([bgr[2], bgr[1], bgr[0]]) * NORM
+    assert np.allclose(center, expected_rgb, atol=0.02), (
+        f"通道顺序错误：期望 RGB={expected_rgb.round(3)}，实际 {center.round(3)}"
+    )
+
