@@ -113,6 +113,15 @@ class RouteIntegrationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"No face detected", response.data)
 
+    def test_edi_tc_016_upload_empty_filename_redirects(self):
+        """EDI-TC-016：空文件名重定向，且不调用图像解码。"""
+        with patch.object(self.subject.cv2, "imdecode") as imdecode:
+            response = self.upload("", b"")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.headers["Location"].endswith("/upload"))
+        imdecode.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
