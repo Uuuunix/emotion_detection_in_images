@@ -137,6 +137,15 @@ class RouteIntegrationTests(unittest.TestCase):
             f"实际返回 {response.status_code}",
         )
 
+    def test_edi_tc_018_real_time_page_defaults_to_not_streaming(self):
+        """EDI-TC-018：实时检测页默认处于未启动状态。"""
+        response = self.client.get("/real_time")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Start Detection", response.data)
+        self.assertNotIn(b"Stop Detection", response.data)
+        self.assertNotIn(b"/video_feed", response.data)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
