@@ -1,4 +1,7 @@
+
 from __future__ import annotations
+
+from unittest.mock import patch
 
 import numpy as np
 
@@ -34,3 +37,26 @@ def test_edi_tc_002_class_labels_match_training_order(subject):
         "class_labels 与训练时的类别索引顺序不一致，预测结果会整体错位"
     )
 
+
+def test_edi_tc_003_face_cascade_is_loaded(subject):
+    """EDI-TC-003：Haar 人脸检测器加载成功且可用（后续用例的前置条件）。"""
+    import cv2
+
+    assert isinstance(subject.face_cascade, cv2.CascadeClassifier)
+    assert not subject.face_cascade.empty(), "Haar 级联分类器为空，人脸检测不可用"
+
+
+# --------------------------------------------------------------------------
+# EDI-TC-004  detect_faces_and_emotions 的无人脸分支
+# --------------------------------------------------------------------------
+def test_edi_tc_004_no_face_early_return_has_no_side_effect(subject, fake_cascade):
+    """EDI-TC-004：未检出人脸时早返回，返回入参本身且不改写像素。"""
+    image = np.full((224, 224, 3), 128, dtype=np.uint8)
+    before = image.copy()
+
+    with patch.object(subject, "face_cascade", fake_cascade([])):
+        returned, emotion = subject.detect_faces_and_emotions(image)
+
+    assert emotion == "No face detected"
+    assert returned is image, "无人脸分支应原样返回入参对象"
+    assert np.array_equal(image, before), "无人脸分支不应修改图像像素"
