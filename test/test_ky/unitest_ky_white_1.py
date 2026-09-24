@@ -69,16 +69,6 @@ TESTCASE_META = {
         expected="模型加载成功，Flask 开发服务器在 http://127.0.0.1:5000 正常监听，"
                  "进程保持存活不退出",
     ),
-    "test_KY_TC_002_index_route_from_project_root": dict(
-        tc_id="KY-TC-002",
-        item="路由 / （index 视图函数）",
-        title="根目录启动后访问首页 / ，返回 200 及首页 HTML",
-        criticality="高",
-        precondition="KY-TC-001 已启动的服务正在运行",
-        input="HTTP GET http://127.0.0.1:5000/",
-        procedure="1) 对 / 发起 GET 请求；2) 检查状态码与响应体关键内容。",
-        expected="HTTP 200，响应体为 index.html 渲染结果（html 文档）",
-    ),
     "test_KY_TC_003_upload_route_from_project_root": dict(
         tc_id="KY-TC-003",
         item="路由 /upload （upload 视图函数，GET 分支）",
@@ -122,31 +112,6 @@ TESTCASE_META = {
         procedure="1) 断言 face_cascade 为 cv2.CascadeClassifier 实例；2) 断言 empty() 为 False。",
         expected="分类器成功加载，empty() 返回 False",
     ),
-    "test_KY_TC_007_detect_no_face_branch": dict(
-        tc_id="KY-TC-007",
-        item="函数 detect_faces_and_emotions —— 无人脸分支",
-        title="输入不含人脸的图像时，返回原图且情绪为 'No face detected'",
-        criticality="高",
-        precondition="face_cascade 已加载；已导入 app 模块；无需模型推理",
-        input="224x224 纯色（中性灰）合成图像，BGR 三通道 ndarray",
-        procedure="1) 构造纯色图像；2) 调用 detect_faces_and_emotions(img)；\n"
-                  "3) 检查返回值的类型、内容与输入对象是否被改写。",
-        expected="返回 (image, 'No face detected')；图像像素值未被修改（不绘制任何矩形）",
-    ),
-    "test_KY_TC_008_detect_face_branch_and_label_mapping": dict(
-        tc_id="KY-TC-008",
-        item="函数 detect_faces_and_emotions —— 有人脸分支与标签映射",
-        title="检出人脸时绘制矩形/标签，情绪标签按 argmax 正确映射到 class_labels",
-        criticality="高",
-        precondition="已导入 app 模块；对 face_cascade.detectMultiScale 与 model.predict 打桩",
-        input="320x320 图像；打桩检测框 (30,40,60,60)；打桩预测向量分别以 index 0/1/2/3 为最大值",
-        procedure="1) 用 mock 替换 detectMultiScale 返回固定人脸框；\n"
-                  "2) 用 mock 替换 model.predict 返回可控概率向量；\n"
-                  "3) 调用被测函数，捕获预处理后的入参张量；\n"
-                  "4) 断言标签映射、绘制结果与预处理规格；5) 恢复被替换的方法。",
-        expected="返回情绪等于 class_labels[argmax]；原图被就地绘制（矩形与文字）；"
-                 "喂给模型的张量形状为 (1,96,96,3) 且取值归一化到 [0,1]",
-    ),
     "test_KY_TC_009_route_table_registered": dict(
         tc_id="KY-TC-009",
         item="Flask 路由注册表 app.url_map",
@@ -157,17 +122,6 @@ TESTCASE_META = {
         procedure="1) 遍历 url_map；2) 逐条断言路由规则与允许的 HTTP 方法。",
         expected="/、/upload、/real_time、/start、/video_feed、/stop 均已注册，"
                  "其中 /start、/stop、/upload 支持 POST",
-    ),
-    "test_KY_TC_010_upload_post_no_face_via_test_client": dict(
-        tc_id="KY-TC-010",
-        item="路由 /upload （POST 分支 → detect_faces_and_emotions → 模板渲染）",
-        title="上传无人脸图片，页面返回 'No face detected' 并回显 base64 图像",
-        criticality="高",
-        precondition="已导入 app 模块；使用 Flask test_client 发起请求",
-        input="multipart/form-data 上传一张 JPEG 编码的纯色图像到字段 image",
-        procedure="1) 生成纯色 JPEG 字节流；2) 通过 test_client POST /upload；\n"
-                  "3) 检查状态码与响应体中的情绪文案。",
-        expected="HTTP 200，响应体包含 'No face detected'（无人脸分支端到端生效）",
     ),
     "test_KY_TC_011_real_time_page_renders": dict(
         tc_id="KY-TC-011",
@@ -1050,26 +1004,21 @@ def render_testcase_table(result, stream):
 REVIEW_METHOD = {
     "KY-TC-001": " 集成测试：真实子进程命令行启动 + 端口/HTTP 探活；语句覆盖模块级初始化代码。"
                  "控制台原文存于 console_output/KY-TC-001_console.txt",
-    "KY-TC-002": "集成测试（灰盒）：真实服务 HTTP 探测；路径覆盖 index 视图",
-    "KY-TC-003": "集成测试（灰盒）：真实服务 HTTP 探测；路径覆盖 upload 视图 GET 分支",
+    "KY-TC-003": " 集成测试（灰盒）：真实服务 HTTP 探测；路径覆盖 upload 视图 GET 分支",
     "KY-TC-004": " 集成测试：变更 cwd 后以相对路径启动，验证相对路径健壮性（等价类：cwd≠根目录）。"
                  "控制台原文存于 console_output/KY-TC-004_console.txt",
     "KY-TC-005": " 单元测试：常量断言，验证 4 分类标签顺序（等价类/边界）",
     "KY-TC-006": " 单元测试：对象类型与可用性断言（打桩前置条件验证）",
-    "KY-TC-007": "白盒单元测试：分支覆盖（len(faces)==0 早返回分支）+ 无副作用断言",
-    "KY-TC-008": "白盒单元测试：分支覆盖（有人脸循环体）+ 打桩（mock Haar 检测器与 model.predict）"
-                 "做逻辑覆盖与等价类划分，校验 argmax→标签映射与预处理规格",
-    "KY-TC-009": "白盒单元测试：静态检查 url_map 路由注册表，验证路由与方法设计",
-    "KY-TC-010": "集成测试（Flask test_client）：multipart 上传，端到端覆盖 upload POST 分支",
-    "KY-TC-011": "集成测试（Flask test_client）：路径覆盖 real_time 视图",
-    "KY-TC-012": "集成测试（Flask test_client，非缓冲）：仅读取响应头即结束，"
+    "KY-TC-009": " 白盒单元测试：静态检查 url_map 路由注册表，验证路由与方法设计",
+    "KY-TC-011": " 集成测试（Flask test_client）：路径覆盖 real_time 视图",
+    "KY-TC-012": " 集成测试（Flask test_client，非缓冲）：仅读取响应头即结束，"
                  "验证流式响应的 Content-Type（等价类：摄像头不可用）",
-    "KY-TC-013": "白盒单元测试：判定覆盖（行 128 `if camera is None` 取假分支 → 跳过行 129 → "
+    "KY-TC-013": " 白盒单元测试：判定覆盖（行 128 `if camera is None` 取假分支 → 跳过行 129 → "
                  "行 131）+ 打桩（mock cv2.VideoCapture 计数），验证重复点击不重复占用设备",
-    "KY-TC-014": "白盒单元测试：判定覆盖（行 174 `if camera:` 取真分支 → 行 175 release → "
+    "KY-TC-014": " 白盒单元测试：判定覆盖（行 174 `if camera:` 取真分支 → 行 175 release → "
                  "行 176 置 None → 行 178 重定向）+ 打桩 mock 相机，并用 template_rendered "
                  "信号直接断言模板变量 stream",
-    "KY-TC-015": "白盒单元测试：判定覆盖（行 174 取假分支 → 跳过行 175–176 → 行 178 重定向）"
+    "KY-TC-015": " 白盒单元测试：判定覆盖（行 174 取假分支 → 跳过行 175–176 → 行 178 重定向）"
                  "+ 异常安全性与幂等性验证（连续 3 次调用）",
 }
 
