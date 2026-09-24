@@ -166,6 +166,30 @@ class RouteIntegrationTests(unittest.TestCase):
         video_capture.assert_called_once_with(0)
         self.assertIs(self.subject.camera, fake_camera)
 
+    def test_edi_tc_020_stop_releases_camera_and_is_idempotent(self):
+        """EDI-TC-020：停止操作释放摄像头，可安全重复执行。"""
+        first_stop = self.client.post("/stop")
+        self.assertEqual(first_stop.status_code, 302)
+        self.assertTrue(first_stop.headers["Location"].endswith("/real_time"))
+
+        fake_camera = MagicMock()
+        with patch.object(
+            self.subject.cv2,
+            "VideoCapture",
+            return_value=fake_camera,
+        ):
+            self.client.post("/start")
+        self.assertIs(self.subject.camera, fake_camera)
+
+        running_stop = self.client.post("/stop")
+        self.assertEqual(running_stop.status_code, 302)
+        fake_camera.release.assert_called_once_with()
+        self.assertIsNone(self.subject.camera)
+
+        repeated_stop = self.client.post("/stop")
+        self.assertEqual(repeated_stop.status_code, 302)
+        fake_camera.release.assert_called_once_with()
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
