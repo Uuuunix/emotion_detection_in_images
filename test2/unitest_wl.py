@@ -146,6 +146,26 @@ class RouteIntegrationTests(unittest.TestCase):
         self.assertNotIn(b"Stop Detection", response.data)
         self.assertNotIn(b"/video_feed", response.data)
 
+    def test_edi_tc_019_start_opens_camera_once(self):
+        """EDI-TC-019：重复启动时只打开一次默认摄像头。"""
+        fake_camera = MagicMock()
+        fake_camera.isOpened.return_value = True
+
+        with patch.object(
+            self.subject.cv2,
+            "VideoCapture",
+            return_value=fake_camera,
+        ) as video_capture:
+            first = self.client.post("/start")
+            second = self.client.post("/start")
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertIn(b"Stop Detection", first.data)
+        self.assertIn(b"/video_feed", first.data)
+        video_capture.assert_called_once_with(0)
+        self.assertIs(self.subject.camera, fake_camera)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
