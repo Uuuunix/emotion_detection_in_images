@@ -61,6 +61,15 @@ class RouteIntegrationTests(unittest.TestCase):
         self.assertIn(b"/upload", response.data)
         self.assertIn(b"/real_time", response.data)
 
+    def test_edi_tc_013_upload_get_renders_empty_form(self):
+        """EDI-TC-013：GET /upload 渲染空表单，不出现情绪结果区块。"""
+        response = self.client.get("/upload")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Upload an Image to Analyze", response.data)
+        self.assertNotIn(b"Detected Emotion", response.data)
+        self.assertNotIn(b"data:image/jpeg;base64,", response.data)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
