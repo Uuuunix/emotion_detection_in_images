@@ -216,6 +216,29 @@ class RouteIntegrationTests(unittest.TestCase):
         payload = body.split(b"\r\n\r\n", 1)[1].split(b"\r\n", 1)[0]
         self.assertTrue(payload.startswith(JPEG_MAGIC), "帧载荷应为合法 JPEG")
 
+    @unittest.expectedFailure
+    def test_edi_tc_022_start_reports_failure_when_camera_unavailable(self):
+        """EDI-TC-022：摄像头不可用时不应显示已经启动。"""
+        dead_camera = MagicMock()
+        dead_camera.isOpened.return_value = False
+        dead_camera.read.return_value = (False, None)
+
+        with patch.object(
+            self.subject.cv2,
+            "VideoCapture",
+            return_value=dead_camera,
+        ):
+            response = self.client.post("/start")
+
+        started_normally = (
+            response.status_code == 200
+            and b"Stop Detection" in response.data
+        )
+        self.assertFalse(
+            started_normally,
+            "摄像头未打开却显示为运行中状态",
+        )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
