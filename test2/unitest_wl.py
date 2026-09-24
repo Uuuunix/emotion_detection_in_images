@@ -190,6 +190,32 @@ class RouteIntegrationTests(unittest.TestCase):
         self.assertEqual(repeated_stop.status_code, 302)
         fake_camera.release.assert_called_once_with()
 
+    def test_edi_tc_021_video_feed_is_multipart_stream(self):
+        """EDI-TC-021：视频流响应包含合法 multipart 帧和 JPEG。"""
+        frame = np.full((240, 320, 3), 128, dtype=np.uint8)
+        fake_camera = MagicMock()
+        fake_camera.read.side_effect = [(True, frame), (False, None)]
+
+        with patch.object(
+            self.subject.cv2,
+            "VideoCapture",
+            return_value=fake_camera,
+        ):
+            response = self.client.get("/video_feed", buffered=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(
+            response.headers["Content-Type"].startswith(
+                "multipart/x-mixed-replace"
+            )
+        )
+
+        body = response.get_data()
+        self.assertIn(b"--frame\r\n", body)
+        self.assertIn(b"Content-Type: image/jpeg", body)
+        payload = body.split(b"\r\n\r\n", 1)[1].split(b"\r\n", 1)[0]
+        self.assertTrue(payload.startswith(JPEG_MAGIC), "帧载荷应为合法 JPEG")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
