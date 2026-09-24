@@ -19,7 +19,6 @@ import numpy as np
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DATA_DIR = Path(__file__).resolve().parent / "data"
 JPEG_MAGIC = b"\xff\xd8\xff"
 
 
@@ -103,6 +102,16 @@ class RouteIntegrationTests(unittest.TestCase):
         payload = base64.b64decode(encoded)
         self.assertTrue(payload.startswith(JPEG_MAGIC), "回显内容应为合法 JPEG")
         model.predict.assert_called_once()
+
+    def test_edi_tc_015_upload_no_face_image(self):
+        """EDI-TC-015：无人脸图片返回 No face detected。"""
+        image = np.full((224, 224, 3), 128, dtype=np.uint8)
+        encoded, buffer = self.subject.cv2.imencode(".jpg", image)
+        self.assertTrue(encoded)
+        response = self.upload("no_face.jpg", buffer.tobytes())
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"No face detected", response.data)
 
 
 if __name__ == "__main__":
