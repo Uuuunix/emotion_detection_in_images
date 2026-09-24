@@ -122,6 +122,21 @@ class RouteIntegrationTests(unittest.TestCase):
         self.assertTrue(response.headers["Location"].endswith("/upload"))
         imdecode.assert_not_called()
 
+    @unittest.expectedFailure
+    def test_edi_tc_017_missing_image_field_is_handled(self):
+        """EDI-TC-017：缺少 image 字段时应友好处理，而不是返回 400。"""
+        response = self.client.post(
+            "/upload",
+            data={"other": "1"},
+            content_type="multipart/form-data",
+        )
+
+        self.assertIn(
+            response.status_code,
+            (200, 302),
+            f"实际返回 {response.status_code}",
+        )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
