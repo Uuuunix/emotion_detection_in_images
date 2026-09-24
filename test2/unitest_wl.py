@@ -239,6 +239,30 @@ class RouteIntegrationTests(unittest.TestCase):
             "摄像头未打开却显示为运行中状态",
         )
 
+    def test_edi_tc_023_route_table_complete(self):
+        """EDI-TC-023：六条业务路由及其 HTTP 方法符合设计。"""
+        actual = {
+            str(rule.rule): sorted(
+                method
+                for method in rule.methods
+                if method in {"GET", "POST"}
+            )
+            for rule in self.subject.app.url_map.iter_rules()
+        }
+        expected = {
+            "/": ["GET"],
+            "/upload": ["GET", "POST"],
+            "/real_time": ["GET"],
+            "/start": ["POST"],
+            "/stop": ["POST"],
+            "/video_feed": ["GET"],
+        }
+
+        for route, methods in expected.items():
+            with self.subTest(route=route):
+                self.assertIn(route, actual)
+                self.assertEqual(actual[route], methods)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
