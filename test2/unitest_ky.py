@@ -4,6 +4,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import numpy as np
+import pytest
 
 NORM = 1.0 / 255.0
 
@@ -111,7 +112,7 @@ def test_edi_tc_006_preprocessing_spec_and_channel_order(subject, fake_model, fa
 
 
 # --------------------------------------------------------------------------
-# EDI-TC-007 ~ 008  边界与循环边界
+# EDI-TC-007 ~ 009  边界与循环边界
 # --------------------------------------------------------------------------
 def test_edi_tc_007_face_box_at_origin_does_not_crash(subject, fake_model, fake_cascade):
     """EDI-TC-007：人脸框位于图像左上角 (0,0) 时，裁剪不越界、不抛异常。"""
@@ -137,3 +138,73 @@ def test_edi_tc_008_image_smaller_than_min_size_no_crash(subject):
     assert emotion == "No face detected"
     assert returned.shape == image.shape
 
+
+def test_edi_tc_009_predict_called_once_per_face(subject, fake_model, fake_cascade):
+    """EDI-TC-009：人脸数为 N 时 model.predict 恰好被调用 N 次（循环边界）。"""
+    image = np.full((300, 300, 3), 128, dtype=np.uint8)
+    boxes = [(10, 10, 60, 60), (150, 150, 70, 70), (220, 20, 50, 50)]
+    model = fake_model()
+    with (
+        patch.object(subject, "model", model),
+        patch.object(subject, "face_cascade", fake_cascade(boxes)),
+    ):
+        subject.detect_faces_and_emotions(image)
+
+    assert len(model.captured_inputs) == len(boxes)
+
+
+# --------------------------------------------------------------------------
+# EDI-TC-010 / 011  缺陷回归用例
+# --------------------------------------------------------------------------
+@pytest.mark.defect
+@pytest.mark.xfail(
+    strict=True,
+    reason="缺陷 D-01：先 cv2.rectangle 绘制、后 image[y:y+h, x:x+w] 裁剪，"
+           "导致送进模型的人脸区域第 0 行/列混入纯蓝色边框像素",
+)
+def test_edi_tc_010_face_crop_must_not_contain_drawn_border(subject, fake_model, fake_cascade):
+    """EDI-TC-010（缺陷回归 D-01）：喂给模型的人脸区域不得含绘制框的边框像素。"""
+    image = np.full((240, 240, 3), 128, dtype=np.uint8)   # 纯灰背景，人脸区域本应全是灰
+    model = fake_model()
+    with (
+        patch.object(subject, "model", model),
+        patch.object(subject, "face_cascade", fake_cascade([(40, 60, 100, 100)])),
+    ):
+        subject.detect_faces_and_emotions(image)
+
+    tensor = model.captured_inputs[0][0]
+    # 蓝框 BGR(255,0,0) 经 BGR2RGB 后为 RGB(0,0,255)，归一化后第 2 通道 = 1.0
+    assert not np.all(tensor[0, :, 2] > 0.99), "裁剪区域第 0 行混入了矩形边框像素"
+    assert not np.all(tensor[:, 0, 2] > 0.99), "裁剪区域第 0 列混入了矩形边框像素"
+
+
+@pytest.mark.defect
+@pytest.mark.xfail(
+    strict=True,
+    reason="缺陷 D-02：detected_emotion 在循环中被反复覆盖，返回值取决于 Haar 返回框的顺序，"
+           "同一张图交换检测框顺序即得到不同结果",
+)
+def test_edi_tc_011_multi_face_result_is_order_independent(subject, fake_cascade, multi_face_scene):
+    """EDI-TC-011（缺陷回归 D-02）：多人脸时返回值不应随检测框顺序变化。
+
+    假模型按"是哪张脸"给标签（大脸恒为 Happy、小脸恒为 Sad），因此：
+    * 若实现与顺序无关 → 正序、逆序应得到同一结果；
+    * 原实现取"最后一个框" → 正序得 Sad、逆序得 Happy，自相矛盾。
+    """
+    image, box_big, box_small, make_model = multi_face_scene
+
+    def run(boxes):
+        model = make_model()
+        with (
+            patch.object(subject, "model", model),
+            patch.object(subject, "face_cascade", fake_cascade(boxes)),
+        ):
+            return subject.detect_faces_and_emotions(image.copy())[1]
+
+    forward = run([box_big, box_small])
+    reversed_ = run([box_small, box_big])
+
+    assert forward == reversed_, (
+        f"多人脸结果依赖检测框顺序：正序返回 {forward}，逆序返回 {reversed_}，"
+        "页面显示的情绪会随检测框顺序漂移"
+    )
