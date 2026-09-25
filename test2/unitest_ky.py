@@ -1,3 +1,16 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""白盒单元测试：被测函数 ``app.detect_faces_and_emotions`` 与模块级常量。
+
+覆盖手法：语句覆盖 / 判定覆盖 / 边界值 / 等价类划分，配以打桩（mock）
+隔离 Haar 检测器与神经网络，使每条用例只验证一个逻辑判定。
+
+用例清单见 ``测试用例清单.md`` 中 EDI-TC-001 ~ EDI-TC-011。
+
+注意：标记 ``xfail(strict=True)`` 的用例是**缺陷回归用例**——它们在当前实现下
+必然失败，代表已登记的缺陷仍然存在；一旦缺陷被修复，pytest 会报 XPASS 失败，
+从而强制推动报告同步更新。这是刻意的设计，不是测试写错了。
+"""
 
 from __future__ import annotations
 
