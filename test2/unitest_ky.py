@@ -109,3 +109,31 @@ def test_edi_tc_006_preprocessing_spec_and_channel_order(subject, fake_model, fa
         f"通道顺序错误：期望 RGB={expected_rgb.round(3)}，实际 {center.round(3)}"
     )
 
+
+# --------------------------------------------------------------------------
+# EDI-TC-007 ~ 008  边界与循环边界
+# --------------------------------------------------------------------------
+def test_edi_tc_007_face_box_at_origin_does_not_crash(subject, fake_model, fake_cascade):
+    """EDI-TC-007：人脸框位于图像左上角 (0,0) 时，裁剪不越界、不抛异常。"""
+    image = np.full((240, 240, 3), 128, dtype=np.uint8)
+    model = fake_model()
+    with (
+        patch.object(subject, "model", model),
+        patch.object(subject, "face_cascade", fake_cascade([(0, 0, 60, 60)])),
+    ):
+        _, emotion = subject.detect_faces_and_emotions(image)
+
+    assert emotion == "Happy"
+    assert model.captured_inputs[0].shape == (1, 96, 96, 3)
+
+
+def test_edi_tc_008_image_smaller_than_min_size_no_crash(subject):
+    """EDI-TC-008：图像小于 Haar 的 minSize=(30,30) 时不崩溃、返回无人脸。
+
+    使用**真实** Haar 分类器，不打断桩。
+    """
+    image = np.full((29, 29, 3), 128, dtype=np.uint8)
+    returned, emotion = subject.detect_faces_and_emotions(image)
+    assert emotion == "No face detected"
+    assert returned.shape == image.shape
+
